@@ -1,17 +1,33 @@
 from flask import Flask, render_template, request, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 import os
+import urllib.parse
 
 app = Flask(__name__)
+
+# Визначаємо базову директорію
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Налаштування бази даних
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'todo.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Обробка DATABASE_URL для PostgreSQL на Railway
+uri = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(basedir, 'todo.db')}")
+if uri.startswith("postgres://"):
+    uri = uri.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = uri
+
+# Додаткові опції для PostgreSQL з SSL на Railway
+if "postgresql" in uri:
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {
+            "sslmode": "require"
+        }
+    }
+
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# Оновлена Модель завдання з полем completed
+# Модель завдання
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.String(200), nullable=False)
@@ -35,7 +51,7 @@ def index():
             return 'Помилка при додаванні завдання'
 
     else:
-        tasks = Task.query.all()
+        tasks = Task.query.order_by(Task.id.desc()).all()
         return render_template('index.html', tasks=tasks)
 
 # Видалення
@@ -48,13 +64,13 @@ def delete(id):
         db.session.commit()
         return redirect('/')
     except:
-        return 'Помилка при видаленні завдання'
+        return 'Помилка при видаленні'
 
-
+# Оновлення статусу виконання
 @app.route('/update/<int:id>')
 def update(id):
     task = Task.query.get_or_404(id)
-    task.completed = not task.completed  # Змінюємо статус completed на протилежний
+    task.completed = not task.completed
 
     try:
         db.session.commit()
@@ -62,10 +78,11 @@ def update(id):
     except:
         return 'Помилка при оновленні'
 
-
+# Запуск
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
